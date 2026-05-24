@@ -8,9 +8,6 @@ MAX_CONCURRENT_JOBS="${MAX_CONCURRENT_JOBS:-1}"
 POLL_INTERVAL="${POLL_INTERVAL:-10}"
 URL="${IMMICH_URL}/api/jobs"
 
-# Variable to store previous job states
-PREV_JOB_STATES=""
-
 # Validate required environment variables
 if [ -z "$API_KEY" ]; then
     echo "ERROR: API_KEY environment variable is required" >&2
@@ -122,6 +119,18 @@ manage_jobs() {
         fi
     done
 
+    prev_job_states=""
+    for job in $managed_job_list; do
+        is_paused=$(echo "$jobs" | jq -r ".$job.queueStatus.isPaused // false" 2>/dev/null)
+
+        if [ "$is_paused" = "true" ]; then
+            prev_job_states="${prev_job_states}${job}:pause,"
+        else
+            prev_job_states="${prev_job_states}${job}:resume,"
+        fi
+    done
+
+
     # Collect jobs with activity and unpause the first N jobs based on MAX_CONCURRENT_JOBS
     jobs_to_unpause=""
     jobs_unpaused=0
@@ -180,7 +189,7 @@ manage_jobs() {
         new_job_states="${new_job_states}${job}:${new_state},"
 
         # Only execute command and log if state changed
-        if ! echo "$PREV_JOB_STATES" | grep -q "${job}:${new_state}"; then
+        if ! echo "$prev_job_states" | grep -q "${job}:${new_state}"; then
             if [ "$new_state" = "resume" ]; then
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ▶️  Resuming job: $job"
             else
@@ -190,8 +199,6 @@ manage_jobs() {
         fi
     done
 
-    # Update previous state
-    PREV_JOB_STATES="$new_job_states"
 }
 
 # Graceful shutdown handler
